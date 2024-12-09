@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Logging;
+using System.Text;
+
 namespace SimpleExample.Worker;
 
 public class Worker : BackgroundService
@@ -15,16 +18,70 @@ public class Worker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var statusEndpointUri = _configuration.GetValue<string>("STATUS_ENDPOINT_URI");
+        var idleTime = _configuration.GetValue<int>("IDLE_TIME_IN_SECONDS");
+        var repeats = _configuration.GetValue<int>("REPEATS");
+        var count = 10;
+        var waitForIt = 1;
+        var shouldIncrease = true;
+
         while (!stoppingToken.IsCancellationRequested)
         {
-            var statusEndpointUri = _configuration.GetValue<string>("STATUS_ENDPOINT_URI");
+            var results = new Dictionary<string, int>();
 
-            using var httpClient = new HttpClient();
-            var statusMessage = await httpClient.GetStringAsync(statusEndpointUri, stoppingToken);
+            var tasks = Enumerable.Range(0, count).Select(x => Task.Run(async () =>
+            {
+                using var httpClient = new HttpClient();
+                return await httpClient.GetStringAsync(statusEndpointUri, stoppingToken);
+            }));
 
-            _logger.LogInformation(statusMessage, DateTimeOffset.Now);
+            await Task.WhenAll(tasks);
 
-            await Task.Delay(1000);
+            foreach (var task in tasks)
+            {
+                var result = task.Result.Substring(task.Result.Length - 32, 5);
+                if (results.ContainsKey(result))
+                {
+                    results[result]++;
+                }
+                else
+                {
+                    results.Add(result, 1);
+                }
+            }
+
+            _logger.LogInformation($"{count} parallel requests have been sent to the API [{waitForIt}/{repeats}]", DateTimeOffset.Now);
+
+            var logBuilder = new StringBuilder();
+            foreach (var result in results.OrderByDescending(x => x.Value))
+            {
+                logBuilder.Append($"{result.Value}*'{result.Key}' ");
+            }
+
+            _logger.LogInformation(logBuilder.ToString());
+
+            waitForIt++;
+
+            if (waitForIt > repeats)
+            {
+                waitForIt = 1;
+
+                count += shouldIncrease ? 10 : -10;
+
+                if (count > 100)
+                {
+                    shouldIncrease = false;
+                    count = 90;
+                }
+
+                if (count < 10)
+                {
+                    shouldIncrease = true;
+                    count = 20;
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(idleTime));
         }
     }
 }
