@@ -21,7 +21,7 @@ public class Worker : BackgroundService
         var statusEndpointUri = _configuration.GetValue<string>("STATUS_ENDPOINT_URI");
         var idleTime = _configuration.GetValue<int>("IDLE_TIME_IN_SECONDS");
         var repeats = _configuration.GetValue<int>("REPEATS");
-        var count = 10;
+        var count = 0;
         var waitForIt = 1;
         var shouldIncrease = true;
 
@@ -29,7 +29,7 @@ public class Worker : BackgroundService
         {
             var results = new Dictionary<string, int>();
 
-            var tasks = Enumerable.Range(0, count).Select(x => Task.Run(async () =>
+            var tasks = Enumerable.Range(0, count == 0 ? 1 : count).Select(x => Task.Run(async () =>
             {
                 using var httpClient = new HttpClient();
                 return await httpClient.GetStringAsync(statusEndpointUri, stoppingToken);
@@ -50,7 +50,7 @@ public class Worker : BackgroundService
                 }
             }
 
-            _logger.LogInformation($"{count} parallel requests have been sent to the API [{waitForIt}/{repeats}]", DateTimeOffset.Now);
+            _logger.LogInformation($"{(count == 0 ? 1 : count)} parallel requests have been sent to the API [{waitForIt}/{repeats}]", DateTimeOffset.Now);
 
             var logBuilder = new StringBuilder();
             foreach (var result in results.OrderByDescending(x => x.Value))
@@ -68,16 +68,16 @@ public class Worker : BackgroundService
 
                 count += shouldIncrease ? 10 : -10;
 
-                if (count > 100)
+                if (count > 110)
                 {
                     shouldIncrease = false;
                     count = 90;
                 }
 
-                if (count < 10)
+                if (count < 0)
                 {
                     shouldIncrease = true;
-                    count = 20;
+                    count = 10;
                 }
             }
 
